@@ -71,7 +71,7 @@
     .trend-tabs { display: flex; background: #f1f5f9; border-radius: 8px; padding: 3px; }
     .trend-tab { padding: 6px 12px; font-size: 12px; border-radius: 6px; cursor: pointer; color: #64748b; transition: 0.2s; font-weight: 500; }
     .trend-tab.active { background: #fff; color: #667eea; font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-    #trend-chart { width: 100%; height: 280px; border-radius: 10px; overflow: hidden; background: #181a20; }
+    #trend-chart { width: 100%; height: 300px; border-radius: 10px; overflow: hidden; }
 
     /* 弹窗样式 */
     .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: none; justify-content: center; align-items: center; z-index: 1000; padding: 20px; }
@@ -137,10 +137,6 @@
   <div class="card" style="padding: 15px;">
     <div class="trend-header" style="padding: 0 5px;">
       <div class="chart-title">📈 电量趋势</div>
-      <div class="trend-tabs">
-        <div class="trend-tab active" onclick="switchTrend('day', this)">日</div>
-        <div class="trend-tab" onclick="switchTrend('month', this)">月</div>
-      </div>
     </div>
     <div id="trend-chart"></div>
   </div>
@@ -262,7 +258,7 @@
       }
 
       renderCalendar();
-      renderTrendChart('day');
+      renderTrendChart();
 
       if (hasToken) checkTokenStatus();
       else {
@@ -381,92 +377,134 @@
     }
 
     // ================= 趋势图相关 =================
-    function renderTrendChart(type) {
+    function renderTrendChart() {
       if (!trendChartDom) {
         trendChartDom = document.getElementById('trend-chart');
         trendChartInstance = echarts.init(trendChartDom);
         window.addEventListener('resize', () => trendChartInstance.resize());
       }
 
-      let dates = [];
-      let usages = [];
+      // 获取所有有数据的日期，按时间排序
+      const sortedDates = Object.keys(dailyDataMap).sort();
       
-      // 获取所有有数据的日期
-      const sortedDates = Object.keys(dailyUsageMap).sort();
-      
-      // 取最近30天的数据
-      const recentDates = sortedDates.slice(-30);
-      
-      recentDates.forEach(dateStr => {
-        dates.push(dateStr.substring(5)); // MM-DD
-        usages.push(dailyUsageMap[dateStr]);
-      });
+      const dates = sortedDates.map(d => d.substring(5)); // MM-DD
+      const quantities = sortedDates.map(d => dailyDataMap[d].quantity);
+      const moneys = sortedDates.map(d => dailyDataMap[d].money);
 
       const option = {
         backgroundColor: '#181a20',
         animation: true,
         tooltip: {
           trigger: 'axis',
-          axisPointer: { type: 'shadow', shadowStyle: { color: 'rgba(102, 126, 234, 0.1)' } },
+          axisPointer: {
+            type: 'cross',
+            lineStyle: { color: '#405466', width: 1, type: 'dashed' },
+            crossStyle: { color: '#405466', width: 1, type: 'dashed' },
+            label: { backgroundColor: '#2a323c', color: '#fff', fontSize: 11 }
+          },
           formatter: function (params) {
-            const p = params[0];
-            return `<div style="font-size:12px;color:#d1d4dc;background:#1e222d;padding:8px 12px;border:1px solid #333;border-radius:4px;">
-                      <div style="margin-bottom:4px;color:#9598a0;">${p.name}</div>
-                      <div>⚡ <span style="color:#0ecb81;">用电量: <b>${p.value} 度</b></span></div>
-                    </div>`;
+            const date = params[0].name; 
+            let html = `<div style="font-size:12px;color:#d1d4dc;background:#1e222d;padding:8px 12px;border:1px solid #333;border-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,0.5);">
+                          <div style="margin-bottom:4px;color:#9598a0;">${date}</div>`;
+            params.forEach(p => {
+              if (p.seriesName === '剩余电量') {
+                html += `<div>⚡ <span style="color:#0ecb81;">${p.seriesName}: <b>${p.value} 度</b></span></div>`;
+              } else {
+                html += `<div>💰 <span style="color:#f6465d;">${p.seriesName}: <b>${p.value} 元</b></span></div>`;
+              }
+            }); 
+            return html + '</div>';
           },
           backgroundColor: 'transparent',
           borderWidth: 0,
           padding: 0
         },
-        grid: { left: '10%', right: '5%', bottom: '15%', top: '10%', containLabel: true },
+        legend: {
+          data: ['剩余电量', '卡内余额'],
+          top: 10,
+          right: 10,
+          textStyle: { fontSize: 12, color: '#9598a0' },
+          itemWidth: 14,
+          itemHeight: 2,
+          itemGap: 15
+        },
+        grid: { left: '8%', right: '8%', bottom: '12%', top: '18%', containLabel: true },
         xAxis: {
           type: 'category',
+          boundaryGap: false,
           data: dates,
           axisLine: { lineStyle: { color: '#2a2e39' } },
           axisTick: { show: false },
-          axisLabel: { color: '#787b86', fontSize: 10, interval: Math.floor(dates.length / 6) }
+          axisLabel: { color: '#787b86', fontSize: 10, margin: 10 },
+          splitLine: { show: true, lineStyle: { color: '#2a2e39', type: 'dashed' } }
         },
-        yAxis: {
-          type: 'value',
-          name: '度',
-          nameTextStyle: { color: '#787b86', fontSize: 10 },
-          axisLine: { show: false },
-          axisTick: { show: false },
-          axisLabel: { color: '#787b86', fontSize: 10 },
-          splitLine: { lineStyle: { type: 'dashed', color: '#2a2e39' } }
-        },
-        series: [{
-          type: 'bar',
-          data: usages,
-          barWidth: '40%',
-          itemStyle: {
-            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-              { offset: 0, color: '#667eea' },
-              { offset: 1, color: '#764ba2' }
-            ]),
-            borderRadius: [4, 4, 0, 0]
+        yAxis: [
+          {
+            type: 'value',
+            name: '电量(度)',
+            position: 'left',
+            nameTextStyle: { color: '#0ecb81', fontSize: 10, padding: [0, 40, 0, 0] },
+            axisLine: { show: false },
+            axisTick: { show: false },
+            axisLabel: { color: '#0ecb81', fontSize: 10 },
+            splitLine: { lineStyle: { type: 'dashed', color: '#2a2e39' } },
+            splitNumber: 4
           },
-          markLine: {
-            symbol: 'none',
-            data: [{ type: 'average', name: '平均' }],
-            lineStyle: { color: '#f6465d', type: 'dashed', width: 1 },
-            label: { 
-              formatter: '平均 {c} 度', 
-              color: '#f6465d', 
-              fontSize: 10,
-              position: 'insideEndTop'
+          {
+            type: 'value',
+            name: '余额(元)',
+            position: 'right',
+            nameTextStyle: { color: '#f6465d', fontSize: 10, padding: [0, 0, 0, 40] },
+            axisLine: { show: false },
+            axisTick: { show: false },
+            axisLabel: { color: '#f6465d', fontSize: 10 },
+            splitLine: { show: false }
+          }
+        ],
+        series: [
+          {
+            name: '剩余电量',
+            type: 'line',
+            yAxisIndex: 0,
+            data: quantities,
+            smooth: true,
+            symbol: 'circle',
+            symbolSize: 6,
+            itemStyle: { color: '#0ecb81' },
+            lineStyle: { width: 2 },
+            areaStyle: {
+              color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                { offset: 0, color: 'rgba(14, 203, 129, 0.3)' },
+                { offset: 1, color: 'rgba(14, 203, 129, 0.0)' }
+              ])
+            },
+            markPoint: {
+              data: [{ type: 'max', name: '最高' }, { type: 'min', name: '最低' }],
+              symbol: 'circle',
+              symbolSize: 6,
+              label: { fontSize: 10, color: '#fff', backgroundColor: '#0ecb81', padding: [2, 4], borderRadius: 2 }
+            }
+          },
+          {
+            name: '卡内余额',
+            type: 'line',
+            yAxisIndex: 1,
+            data: moneys,
+            smooth: true,
+            symbol: 'circle',
+            symbolSize: 6,
+            itemStyle: { color: '#f6465d' },
+            lineStyle: { width: 2 },
+            areaStyle: {
+              color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                { offset: 0, color: 'rgba(246, 70, 93, 0.2)' },
+                { offset: 1, color: 'rgba(246, 70, 93, 0.0)' }
+              ])
             }
           }
-        }]
+        ]
       };
       trendChartInstance.setOption(option, true);
-    }
-
-    function switchTrend(type, el) {
-      document.querySelectorAll('.trend-tab').forEach(t => t.classList.remove('active'));
-      el.classList.add('active');
-      renderTrendChart(type);
     }
 
     // ================= 原有功能 =================
