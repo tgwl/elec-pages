@@ -171,54 +171,36 @@
     let trendChartDom, trendChartInstance;
     let currentYear, currentMonth;
 
-    // ================= 生成模拟数据 =================
-    function generateMockData() {
-      const data = [];
-      const today = new Date();
-      let currentQty = 80 + Math.random() * 20; // 初始电量 80~100度
-      let currentMoney = currentQty * 0.55;     // 假设电费 0.55元/度
-      
-      // 生成过去 45 天的数据
-      for (let i = 45; i >= 0; i--) {
-        const date = new Date(today);
-        date.setDate(today.getDate() - i);
-        const dateStr = date.toISOString().split('T')[0];
-        
-        // 每天消耗 3 到 8 度电
-        const dailyUsage = 3 + Math.random() * 5;
-        currentQty -= dailyUsage;
-        currentMoney -= dailyUsage * 0.55;
-        
-        // 如果电量低于30度，模拟充值 50 度
-        if (currentQty < 30) {
-          currentQty += 50;
-          currentMoney += 50 * 0.55;
-        }
-        
-        // 每天生成 1 条记录
-        const hour = 10 + Math.floor(Math.random() * 10);
-        const minute = Math.floor(Math.random() * 60);
-        const timeStr = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
-        
-        data.push({
-          date: dateStr,
-          time: timeStr,
-          quantity: parseFloat(currentQty.toFixed(2)),
-          money: parseFloat(currentMoney.toFixed(2))
-        });
-      }
-      return data;
-    }
-
     async function init() {
       const today = new Date();
       currentYear = today.getFullYear();
       currentMonth = today.getMonth() + 1;
 
-      // 使用本地模拟数据
-      historyData = generateMockData();
-      processDailyData();
-      renderPage(true); // 假设 Token 已配置
+      try {
+        const res = await fetch('/api/data');
+        const contentType = res.headers.get("content-type");
+        if (contentType && contentType.includes("application/json")) {
+          const json = await res.json();
+          if (json.success) {
+            historyData = json.data || [];
+            processDailyData();
+            renderPage(json.hasToken);
+          } else {
+            renderPage(false);
+            document.getElementById('token-status').className = 'token-status status-err';
+            document.getElementById('token-status').innerHTML = '🔴 后端返回错误';
+          }
+        } else {
+          renderPage(false);
+          document.getElementById('token-status').className = 'token-status status-err';
+          document.getElementById('token-status').innerHTML = '🔴 无法连接后端';
+        }
+      } catch (e) {
+        console.error('初始化失败', e);
+        renderPage(false);
+        document.getElementById('token-status').className = 'token-status status-err';
+        document.getElementById('token-status').innerHTML = '🔴 网络异常';
+      }
     }
 
     function processDailyData() {
@@ -259,7 +241,7 @@
           const currentQuantity = currentRecords[0].quantity;
           const usage = prevQuantity - currentQuantity;
           
-          // 只有当用电量为正数时才记录（防止充值导致数据异常）
+          // 只有当用电量为正数时才记录（防止数据异常）
           if (usage >= 0) {
             dailyUsageMap[currentDate] = usage;
           }
@@ -525,15 +507,15 @@
       trendChartInstance.setOption(option, true);
     }
 
-    // ================= 原有功能 (已改为本地模拟) =================
+    // ================= 原有功能 =================
     async function checkTokenStatus() {
       const statusEl = document.getElementById('token-status');
-      statusEl.className = 'token-status status-checking';
-      statusEl.innerHTML = '🟡 正在检测 Token...';
-      setTimeout(() => {
-        statusEl.className = 'token-status status-ok';
-        statusEl.innerHTML = '🟢 Token 已配置 (模拟)';
-      }, 500);
+      try {
+        const res = await fetch('/api/check-token');
+        const data = await res.json();
+        if (data.valid) { statusEl.className = 'token-status status-ok'; statusEl.innerHTML = '🟢 Token 已配置'; }
+        else { statusEl.className = 'token-status status-err'; statusEl.innerHTML = ' Token 已失效'; }
+      } catch (e) { statusEl.className = 'token-status status-err'; statusEl.innerHTML = '🔴 Token 已失效'; }
     }
 
     async function updateToken() {
@@ -541,16 +523,20 @@
       const msg = document.getElementById('msg');
       if (!token) { msg.className = 'msg error'; msg.textContent = 'Token 不能为空'; return; }
       msg.style.display = 'block'; msg.className = 'msg'; msg.textContent = '提交中...';
-      
-      // 模拟保存延迟
-      setTimeout(() => {
-        msg.className = 'msg success'; 
-        msg.textContent = '✅ Token 已保存 (模拟)';
-        document.getElementById('token-input').value = '';
-        setTimeout(() => {
-          checkTokenStatus();
-        }, 1000);
-      }, 800);
+      try {
+        const res = await fetch('/api/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: token }) });
+        const data = await res.json();
+        if (data.success) {
+          msg.className = 'msg success'; msg.textContent = '✅ ' + data.message;
+          document.getElementById('token-input').value = '';
+          setTimeout(() => {
+            const statusEl = document.getElementById('token-status');
+            statusEl.className = 'token-status status-checking';
+            statusEl.innerHTML = '🟡 正在检测 Token...';
+            checkTokenStatus();
+          }, 1000);
+        } else { throw new Error(data.error); }
+      } catch (e) { msg.className = 'msg error'; msg.textContent = '❌ ' + e.message; }
     }
 
     async function testFetch() {
@@ -560,28 +546,18 @@
       modal.classList.add('show');
       title.textContent = '🧪 正在测试抓取...';
       body.innerHTML = '<p style="text-align:center;color:#94a3b8;">正在请求学校接口，请稍候...</p>';
-      
-      // 模拟请求延迟
-      setTimeout(() => {
-        const mockResponse = {
-          success: true,
-          message: "抓取成功",
-          data: {
-            quantity: historyData[historyData.length - 1].quantity,
-            money: historyData[historyData.length - 1].money,
-            time: new Date().toLocaleTimeString()
-          }
-        };
-        title.textContent = '✅ 抓取成功 (模拟)'; 
-        body.innerHTML = '<p>接口返回正常，数据已保存。</p><pre>' + JSON.stringify(mockResponse, null, 2) + '</pre>';
-      }, 1000);
+      try {
+        const res = await fetch('/api/?test=1');
+        const data = await res.json();
+        if (data.success) { title.textContent = '✅ 抓取成功'; body.innerHTML = '<p>接口返回正常，数据已保存。</p><pre>' + JSON.stringify(data, null, 2) + '</pre>'; }
+        else { title.textContent = ' 抓取失败'; body.innerHTML = '<p>接口返回错误：</p><pre>' + JSON.stringify(data, null, 2) + '</pre>'; }
+      } catch (e) { title.textContent = '🔥 网络异常'; body.innerHTML = '<p>无法连接到 Worker：</p><pre>' + e.message + '</pre>'; }
     }
 
     function closeModal() { document.getElementById('modal').classList.remove('show'); }
     document.getElementById('modal').addEventListener('click', function(e) { if (e.target === this) closeModal(); });
 
-    // 启动初始化
     init();
   </script>
 </body>
-</html>
+</html>先把接口去除 生成一些模拟数据
