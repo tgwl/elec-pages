@@ -1,8 +1,213 @@
 <!DOCTYPE html>
-<html>
-<head><title>监控</title></head>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>宿舍电费监控看板</title>
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f5f7fa; padding: 15px; color: #333; }
+    .card { background: #fff; border-radius: 14px; padding: 20px; margin-bottom: 15px; box-shadow: 0 2px 12px rgba(0,0,0,0.04); }
+    .header { text-align: center; margin-bottom: 10px; }
+    .header h2 { font-size: 18px; font-weight: 600; color: #1f2937; }
+    .token-status { font-size: 12px; margin-top: 6px; display: inline-block; padding: 3px 10px; border-radius: 20px; transition: all 0.3s; }
+    .status-ok { background: #dcfce7; color: #166534; }
+    .status-err { background: #fee2e2; color: #991b1b; }
+    .status-checking { background: #fef3c7; color: #92400e; }
+    .balance-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px; }
+    .balance-item { text-align: center; padding: 16px 10px; background: #f8fafc; border-radius: 12px; border: 1px solid #f1f5f9; }
+    .balance-item .label { font-size: 13px; color: #64748b; margin-bottom: 8px; }
+    .balance-item .value { font-size: 26px; font-weight: 700; color: #0f172a; line-height: 1.2; }
+    .balance-item .unit { font-size: 13px; font-weight: 400; color: #94a3b8; margin-left: 2px; }
+    .update-time { text-align: center; font-size: 12px; color: #94a3b8; }
+    .form-group { margin-bottom: 15px; }
+    .form-group label { display: block; font-size: 13px; color: #475569; margin-bottom: 8px; font-weight: 500; }
+    input { width: 100%; padding: 12px; border: 1px solid #e2e8f0; border-radius: 10px; font-size: 14px; outline: none; transition: 0.2s; background: #f8fafc; }
+    input:focus { border-color: #667eea; background: #fff; }
+    .btn { width: 100%; padding: 13px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #fff; border: none; border-radius: 10px; font-size: 15px; font-weight: 600; cursor: pointer; transition: 0.2s; margin-bottom: 10px; }
+    .btn:active { transform: scale(0.98); opacity: 0.9; }
+    .btn-secondary { background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0; }
+    .msg { margin-top: 12px; padding: 10px; border-radius: 8px; text-align: center; display: none; font-size: 13px; }
+    .success { background: #dcfce7; color: #166534; display: block; }
+    .error { background: #fee2e2; color: #991b1b; display: block; }
+    .chart-title { font-size: 15px; font-weight: 600; color: #1f2937; margin-bottom: 15px; display: flex; align-items: center; gap: 6px; }
+    #chart { width: 100%; height: 280px; }
+    .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: none; justify-content: center; align-items: center; z-index: 1000; padding: 20px; }
+    .modal-overlay.show { display: flex; }
+    .modal-content { background: #fff; border-radius: 14px; padding: 20px; width: 100%; max-width: 400px; max-height: 80vh; overflow-y: auto; box-shadow: 0 10px 40px rgba(0,0,0,0.2); }
+    .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+    .modal-title { font-size: 16px; font-weight: 600; color: #1f2937; }
+    .modal-close { background: none; border: none; font-size: 24px; color: #94a3b8; cursor: pointer; }
+    .modal-body { font-size: 13px; color: #475569; line-height: 1.6; }
+    .modal-body pre { background: #f8fafc; padding: 12px; border-radius: 8px; overflow-x: auto; font-size: 12px; white-space: pre-wrap; word-break: break-all; margin-top: 10px; border: 1px solid #e2e8f0; }
+    .modal-footer { margin-top: 20px; text-align: right; }
+    .modal-footer .btn { width: auto; padding: 10px 20px; margin-bottom: 0; font-size: 14px; }
+  </style>
+</head>
 <body>
-  <h1>请访问 /show 查看看板</h1>
-  <script>window.location.href = '/show';</script>
+  <div class="header">
+    <h2>⚡ 宿舍电费监控看板</h2>
+    <div class="token-status status-checking" id="token-status"> 正在检测 Token...</div>
+  </div>
+
+  <div class="card">
+    <div class="balance-grid">
+      <div class="balance-item">
+        <div class="label">剩余电量</div>
+        <div class="value" id="val-qty">--<span class="unit">度</span></div>
+      </div>
+      <div class="balance-item">
+        <div class="label">卡内余额</div>
+        <div class="value" id="val-money">--<span class="unit">元</span></div>
+      </div>
+    </div>
+    <div class="update-time" id="update-time">数据更新时间: --</div>
+  </div>
+
+  <div class="card">
+    <div class="form-group">
+      <label> 更新 Authorization Token</label>
+      <input type="text" id="token-input" placeholder="粘贴从企业微信抓包获取的最新 Token">
+    </div>
+    <button class="btn" onclick="updateToken()">保存并生效</button>
+    <button class="btn btn-secondary" onclick="testFetch()">🧪 测试抓取接口</button>
+    <div class="msg" id="msg"></div>
+  </div>
+
+  <div class="card">
+    <div class="chart-title"> 历史剩余电量趋势</div>
+    <div id="chart"></div>
+  </div>
+
+  <div class="modal-overlay" id="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div class="modal-title" id="modal-title">测试结果</div>
+        <button class="modal-close" onclick="closeModal()">&times;</button>
+      </div>
+      <div class="modal-body" id="modal-body"></div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal()">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let historyData = [];
+    let chartDom, myChart;
+
+    // 🌟 页面加载时从 /api/data 获取初始数据
+    async function init() {
+      try {
+        const res = await fetch('/api/data');
+        const json = await res.json();
+        if (json.success) {
+          historyData = json.data;
+          renderPage(json.hasToken);
+        }
+      } catch (e) {
+        console.error('初始化失败', e);
+        document.getElementById('token-status').className = 'token-status status-err';
+        document.getElementById('token-status').innerHTML = '🔴 无法连接后端';
+      }
+    }
+
+    function renderPage(hasToken) {
+      // 渲染数据
+      if (historyData.length > 0) {
+        const latest = historyData[historyData.length - 1];
+        document.getElementById('val-qty').innerHTML = latest.quantity + '<span class="unit">度</span>';
+        document.getElementById('val-money').innerHTML = latest.money.toFixed(2) + '<span class="unit">元</span>';
+        document.getElementById('update-time').innerText = '数据更新时间: ' + latest.date + ' ' + latest.time;
+      }
+
+      // 渲染图表
+      chartDom = document.getElementById('chart');
+      myChart = echarts.init(chartDom);
+      const option = {
+        tooltip: { trigger: 'axis', axisPointer: { type: 'cross' }, formatter: function (params) {
+          const date = params[0].name; let html = date + '<br/>';
+          params.forEach(p => {
+            if (p.seriesName === '剩余电量') html += '⚡ ' + p.seriesName + ': <b style="color:#667eea">' + p.value + ' 度</b><br/>';
+            else html += ' ' + p.seriesName + ': <b style="color:#f59e0b">' + p.value + ' 元</b><br/>';
+          }); return html;
+        }},
+        legend: { data: ['剩余电量', '卡内余额'], bottom: 0, textStyle: { fontSize: 12, color: '#64748b' } },
+        grid: { left: '12%', right: '12%', bottom: '10%', top: '10%', containLabel: true },
+        xAxis: { type: 'category', boundaryGap: false, data: historyData.map(item => item.date.substring(5)), axisLine: { lineStyle: { color: '#e2e8f0' } }, axisLabel: { color: '#64748b', fontSize: 11 } },
+        yAxis: [
+          { type: 'value', name: '剩余电量', nameTextStyle: { color: '#667eea', fontSize: 11 }, axisLine: { show: false }, axisLabel: { color: '#667eea', fontSize: 11 }, splitLine: { lineStyle: { type: 'dashed', color: '#f1f5f9' } } },
+          { type: 'value', name: '卡内余额', nameTextStyle: { color: '#f59e0b', fontSize: 11 }, axisLine: { show: false }, axisLabel: { color: '#f59e0b', fontSize: 11 }, splitLine: { show: false } }
+        ],
+        series: [
+          { name: '剩余电量', type: 'line', yAxisIndex: 0, data: historyData.map(item => item.quantity), smooth: true, symbol: 'circle', symbolSize: 6, itemStyle: { color: '#667eea' }, lineStyle: { width: 3 }, areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: 'rgba(102, 126, 234, 0.3)' }, { offset: 1, color: 'rgba(102, 126, 234, 0.0)' }]) } },
+          { name: '卡内余额', type: 'line', yAxisIndex: 1, data: historyData.map(item => item.money), smooth: true, symbol: 'circle', symbolSize: 6, itemStyle: { color: '#f59e0b' }, lineStyle: { width: 3 }, areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: 'rgba(245, 158, 11, 0.3)' }, { offset: 1, color: 'rgba(245, 158, 11, 0.0)' }]) } }
+        ]
+      };
+      myChart.setOption(option);
+      window.addEventListener('resize', () => myChart.resize());
+
+      // 检测 Token
+      if (hasToken) checkTokenStatus();
+      else {
+        const statusEl = document.getElementById('token-status');
+        statusEl.className = 'token-status status-err';
+        statusEl.innerHTML = '🔴 Token 未配置';
+      }
+    }
+
+    async function checkTokenStatus() {
+      const statusEl = document.getElementById('token-status');
+      try {
+        const res = await fetch('/api/check-token');
+        const data = await res.json();
+        if (data.valid) { statusEl.className = 'token-status status-ok'; statusEl.innerHTML = '🟢 Token 已配置'; }
+        else { statusEl.className = 'token-status status-err'; statusEl.innerHTML = ' Token 已失效'; }
+      } catch (e) { statusEl.className = 'token-status status-err'; statusEl.innerHTML = '🔴 Token 已失效'; }
+    }
+
+    async function updateToken() {
+      const token = document.getElementById('token-input').value.trim();
+      const msg = document.getElementById('msg');
+      if (!token) { msg.className = 'msg error'; msg.textContent = 'Token 不能为空'; return; }
+      msg.style.display = 'block'; msg.className = 'msg'; msg.textContent = '提交中...';
+      try {
+        const res = await fetch('/api/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: token }) });
+        const data = await res.json();
+        if (data.success) {
+          msg.className = 'msg success'; msg.textContent = '✅ ' + data.message;
+          document.getElementById('token-input').value = '';
+          setTimeout(() => {
+            const statusEl = document.getElementById('token-status');
+            statusEl.className = 'token-status status-checking';
+            statusEl.innerHTML = '🟡 正在检测 Token...';
+            checkTokenStatus();
+          }, 1000);
+        } else { throw new Error(data.error); }
+      } catch (e) { msg.className = 'msg error'; msg.textContent = '❌ ' + e.message; }
+    }
+
+    async function testFetch() {
+      const modal = document.getElementById('modal');
+      const title = document.getElementById('modal-title');
+      const body = document.getElementById('modal-body');
+      modal.classList.add('show');
+      title.textContent = '🧪 正在测试抓取...';
+      body.innerHTML = '<p style="text-align:center;color:#94a3b8;">正在请求学校接口，请稍候...</p>';
+      try {
+        const res = await fetch('/api/?test=1');
+        const data = await res.json();
+        if (data.success) { title.textContent = '✅ 抓取成功'; body.innerHTML = '<p>接口返回正常，数据已保存。</p><pre>' + JSON.stringify(data, null, 2) + '</pre>'; }
+        else { title.textContent = ' 抓取失败'; body.innerHTML = '<p>接口返回错误：</p><pre>' + JSON.stringify(data, null, 2) + '</pre>'; }
+      } catch (e) { title.textContent = '🔥 网络异常'; body.innerHTML = '<p>无法连接到 Worker：</p><pre>' + e.message + '</pre>'; }
+    }
+
+    function closeModal() { document.getElementById('modal').classList.remove('show'); }
+    document.getElementById('modal').addEventListener('click', function(e) { if (e.target === this) closeModal(); });
+
+    // 启动
+    init();
+  </script>
 </body>
 </html>
