@@ -7,11 +7,14 @@ export async function onRequest(context) {
   const { request } = context;
   const url = new URL(request.url);
   
-  // 只处理 /api 开头的请求
-  if (url.pathname.startsWith('/api')) {
+  // 🌟 严格只代理 /api 开头的请求 (包括 /api 和 /api/xxx)
+  if (url.pathname === '/api' || url.pathname.startsWith('/api/')) {
     // 去掉 /api 前缀，拼接 Worker URL
-    const targetPath = url.pathname.replace('/api', '') + url.search;
-    const targetUrl = `${WORKER_URL}${targetPath}`;
+    let targetPath = url.pathname.replace('/api', '');
+    // 如果去掉后是空字符串（即请求的是 /api），补一个 /
+    if (!targetPath) targetPath = '/'; 
+    
+    const targetUrl = `${WORKER_URL}${targetPath}${url.search}`;
 
     try {
       const response = await fetch(targetUrl, {
@@ -37,6 +40,6 @@ export async function onRequest(context) {
     }
   }
 
-  // 其他请求（如 /, /index.html）交给 Pages 默认处理（即返回 public/index.html）
+  // 🌟 其他所有请求（包括 /, /index.html, /favicon.ico 等）直接返回 Pages 的静态文件
   return context.next();
 }

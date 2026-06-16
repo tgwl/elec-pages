@@ -97,19 +97,35 @@
     let historyData = [];
     let chartDom, myChart;
 
-    // 🌟 页面加载时从 /api/data 获取初始数据
+      //  页面加载时从 /api/data 获取初始数据
     async function init() {
       try {
         const res = await fetch('/api/data');
-        const json = await res.json();
-        if (json.success) {
-          historyData = json.data;
-          renderPage(json.hasToken);
+        // 如果返回的不是 JSON (比如 404 HTML)，尝试解析
+        const contentType = res.headers.get("content-type");
+        if (contentType && contentType.includes("application/json")) {
+          const json = await res.json();
+          if (json.success) {
+            historyData = json.data || [];
+            renderPage(json.hasToken);
+          } else {
+            // 接口返回了错误，但仍然渲染页面骨架
+            renderPage(false);
+            document.getElementById('token-status').className = 'token-status status-err';
+            document.getElementById('token-status').innerHTML = '🔴 后端返回错误';
+          }
+        } else {
+          // 返回了非 JSON (可能是代理失败)
+          renderPage(false);
+          document.getElementById('token-status').className = 'token-status status-err';
+          document.getElementById('token-status').innerHTML = '🔴 无法连接后端';
         }
       } catch (e) {
         console.error('初始化失败', e);
+        // 即使失败，也要渲染页面骨架，防止白屏
+        renderPage(false);
         document.getElementById('token-status').className = 'token-status status-err';
-        document.getElementById('token-status').innerHTML = '🔴 无法连接后端';
+        document.getElementById('token-status').innerHTML = '🔴 网络异常';
       }
     }
 
