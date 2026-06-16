@@ -1,4 +1,3 @@
-```html
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -172,6 +171,7 @@
   <script>
     let historyData = [];
     let dailyUsageMap = {}; // 存储每日用电量 { 'YYYY-MM-DD': usage }
+    let dailyDataMap = {}; // 存储每日详细数据 { 'YYYY-MM-DD': { quantity, money, time } }
     let trendChartDom, trendChartInstance;
     let currentYear, currentMonth;
 
@@ -209,32 +209,45 @@
 
     function processDailyData() {
       dailyUsageMap = {};
-      if (historyData.length > 0) {
-        // 优先使用后端返回的 usage 字段
-        if (historyData[0].usage !== undefined) {
-          historyData.forEach(item => {
-            dailyUsageMap[item.date] = item.usage;
-          });
-        } else {
-          // 否则通过剩余电量差值计算
-          for (let i = 1; i < historyData.length; i++) {
-            const prev = historyData[i-1];
-            const curr = historyData[i];
-            const diff = prev.quantity - curr.quantity;
-            dailyUsageMap[curr.date] = diff > 0 ? diff : 0;
-          }
-        }
-      }
+      dailyDataMap = {};
       
-      // 如果数据太少，填充模拟数据以便展示日历效果
-      if (Object.keys(dailyUsageMap).length < 10) {
-        const today = new Date();
-        for (let i = 30; i >= 0; i--) {
-          const d = new Date(today);
-          d.setDate(d.getDate() - i);
-          const dateStr = d.toISOString().split('T')[0];
-          if (!dailyUsageMap[dateStr]) {
-            dailyUsageMap[dateStr] = Math.floor(Math.random() * 20) + 2;
+      if (historyData.length === 0) return;
+      
+      // 按日期分组，每天取第一条记录作为当天的起始数据
+      const dailyGroups = {};
+      historyData.forEach(item => {
+        if (!dailyGroups[item.date]) {
+          dailyGroups[item.date] = [];
+        }
+        dailyGroups[item.date].push(item);
+      });
+      
+      // 按日期排序
+      const sortedDates = Object.keys(dailyGroups).sort();
+      
+      // 计算每天的用电量
+      for (let i = 0; i < sortedDates.length; i++) {
+        const currentDate = sortedDates[i];
+        const currentRecords = dailyGroups[currentDate];
+        
+        // 存储当天的详细数据（取第一条记录）
+        dailyDataMap[currentDate] = {
+          quantity: currentRecords[0].quantity,
+          money: currentRecords[0].money,
+          time: currentRecords[0].time,
+          records: currentRecords
+        };
+        
+        // 计算用电量：前一天的电量 - 当天的电量
+        if (i > 0) {
+          const prevDate = sortedDates[i - 1];
+          const prevQuantity = dailyGroups[prevDate][0].quantity;
+          const currentQuantity = currentRecords[0].quantity;
+          const usage = prevQuantity - currentQuantity;
+          
+          // 只有当用电量为正数时才记录（防止数据异常）
+          if (usage >= 0) {
+            dailyUsageMap[currentDate] = usage;
           }
         }
       }
@@ -332,32 +345,38 @@
       
       title.textContent = `${dateStr} 用电详情`;
       
-      // 模拟一些时段数据
-      const peak = (usage * 0.6).toFixed(1);
-      const offPeak = (usage * 0.4).toFixed(1);
-      const cost = (usage * 0.55).toFixed(2); // 假设 0.55元/度
-
-      body.innerHTML = `
-        <div class="day-detail-grid">
-          <div class="day-detail-item">
-            <div class="label">总用电量</div>
-            <div class="val">${usage.toFixed(1)}<span style="font-size:12px;color:#94a3b8;"> 度</span></div>
+      const dayData = dailyDataMap[dateStr];
+      let detailHtml = '';
+      
+      if (dayData) {
+        const cost = (usage * 0.55).toFixed(2); // 假设 0.55元/度
+        
+        detailHtml = `
+          <div class="day-detail-grid">
+            <div class="day-detail-item">
+              <div class="label">当日用电量</div>
+              <div class="val">${usage.toFixed(2)}<span style="font-size:12px;color:#94a3b8;"> 度</span></div>
+            </div>
+            <div class="day-detail-item">
+              <div class="label">预估电费</div>
+              <div class="val" style="color:#f6465d;">¥${cost}</div>
+            </div>
+            <div class="day-detail-item">
+              <div class="label">起始电量</div>
+              <div class="val">${dayData.quantity.toFixed(2)}<span style="font-size:12px;color:#94a3b8;"> 度</span></div>
+            </div>
+            <div class="day-detail-item">
+              <div class="label">记录时间</div>
+              <div class="val" style="font-size:14px;">${dayData.time}</div>
+            </div>
           </div>
-          <div class="day-detail-item">
-            <div class="label">预估电费</div>
-            <div class="val" style="color:#f6465d;">¥${cost}</div>
-          </div>
-          <div class="day-detail-item">
-            <div class="label">高峰用电</div>
-            <div class="val">${peak}<span style="font-size:12px;color:#94a3b8;"> 度</span></div>
-          </div>
-          <div class="day-detail-item">
-            <div class="label">低谷用电</div>
-            <div class="val">${offPeak}<span style="font-size:12px;color:#94a3b8;"> 度</span></div>
-          </div>
-        </div>
-        <p style="margin-top:15px;font-size:12px;color:#94a3b8;text-align:center;">* 时段数据为按比例估算，仅供参考</p>
-      `;
+          <p style="margin-top:15px;font-size:12px;color:#94a3b8;text-align:center;">* 电费按 0.55元/度估算，仅供参考</p>
+        `;
+      } else {
+        detailHtml = '<p style="text-align:center;color:#94a3b8;">暂无详细数据</p>';
+      }
+      
+      body.innerHTML = detailHtml;
       modal.classList.add('show');
     }
 
@@ -372,15 +391,16 @@
       let dates = [];
       let usages = [];
       
-      // 获取最近30天的数据
-      const today = new Date();
-      for (let i = 29; i >= 0; i--) {
-        const d = new Date(today);
-        d.setDate(d.getDate() - i);
-        const dateStr = d.toISOString().split('T')[0];
+      // 获取所有有数据的日期
+      const sortedDates = Object.keys(dailyUsageMap).sort();
+      
+      // 取最近30天的数据
+      const recentDates = sortedDates.slice(-30);
+      
+      recentDates.forEach(dateStr => {
         dates.push(dateStr.substring(5)); // MM-DD
-        usages.push(dailyUsageMap[dateStr] || 0);
-      }
+        usages.push(dailyUsageMap[dateStr]);
+      });
 
       const option = {
         backgroundColor: '#181a20',
@@ -405,7 +425,7 @@
           data: dates,
           axisLine: { lineStyle: { color: '#2a2e39' } },
           axisTick: { show: false },
-          axisLabel: { color: '#787b86', fontSize: 10, interval: 4 }
+          axisLabel: { color: '#787b86', fontSize: 10, interval: Math.floor(dates.length / 6) }
         },
         yAxis: {
           type: 'value',
@@ -446,7 +466,6 @@
     function switchTrend(type, el) {
       document.querySelectorAll('.trend-tab').forEach(t => t.classList.remove('active'));
       el.classList.add('active');
-      // 这里可以扩展为按月展示，目前演示都使用日数据
       renderTrendChart(type);
     }
 
@@ -504,4 +523,3 @@
   </script>
 </body>
 </html>
-```
